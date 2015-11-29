@@ -63,7 +63,11 @@ func main() {
 		v.Set("response_type", "code")
 		v.Set("client_id", conf.ClientID)
 		v.Set("scope", scope)
-		v.Set("redirect_uri", redirectUri)
+		ruri := conf.OAuthCallback
+		if ruri == "" {
+			ruri = redirectUri
+		}
+		v.Set("redirect_uri", ruri)
 		v.Set("state", state)
 		rUri := "https://accounts.spotify.com/authorize?" + v.Encode()
 		return c.Redirect(http.StatusFound, rUri)
