@@ -3,20 +3,16 @@ package main
 import (
 	"encoding/json"
 	"github.com/GeertJohan/go.rice"
+	"github.com/dfjones/riprdio/collection"
+	"github.com/dfjones/riprdio/config"
 	"github.com/labstack/echo"
 	mw "github.com/labstack/echo/middleware"
 	"github.com/labstack/gommon/log"
 	"math/rand"
 	"net/http"
 	"net/url"
-	"os"
 	"time"
 )
-
-type Config struct {
-	ClientID     string `json:"clientId"`
-	ClientSecret string `json:"clientSecret"`
-}
 
 type AuthData struct {
 	AccessToken  string `json:"access_token"`
@@ -27,9 +23,11 @@ type AuthData struct {
 
 var (
 	runes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	conf  config.Config
 )
 
 const (
+	scope           = "user-read-private user-read-email playlist-read-private playlist-modify-public playlist-modify-private user-library-read user-library-modify playlist-read-collaborative"
 	spotifyTokenUrl = "https://accounts.spotify.com/api/token"
 	redirectUri     = "http://localhost:3000/callback"
 	stateCookieKey  = "spotify_auth_state"
@@ -48,19 +46,8 @@ func randString(n int) string {
 }
 
 func main() {
-	var config Config
-
-	configFile, err := os.Open("config.json")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = json.NewDecoder(configFile).Decode(&config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Info("config = %+v", config)
-	configFile.Close()
+	config.LoadConfig("config.json")
+	conf = config.GetConfig()
 
 	e := echo.New()
 
@@ -84,10 +71,9 @@ func main() {
 		log.Info("state %s", state)
 		resp := c.Response()
 		http.SetCookie(resp.Writer(), &http.Cookie{Name: stateCookieKey, Value: state})
-		scope := "user-read-private user-read-email"
 		v := url.Values{}
 		v.Set("response_type", "code")
-		v.Set("client_id", config.ClientID)
+		v.Set("client_id", conf.ClientID)
 		v.Set("scope", scope)
 		v.Set("redirect_uri", redirectUri)
 		v.Set("state", state)
@@ -117,8 +103,8 @@ func main() {
 		v.Set("code", code)
 		v.Set("redirect_uri", redirectUri)
 		v.Set("grant_type", "authorization_code")
-		v.Set("client_id", config.ClientID)
-		v.Set("client_secret", config.ClientSecret)
+		v.Set("client_id", conf.ClientID)
+		v.Set("client_secret", conf.ClientSecret)
 
 		authResp, err := http.PostForm(spotifyTokenUrl, v)
 		if err != nil {
@@ -137,19 +123,19 @@ func main() {
 		log.Info("data %+v", authData)
 
 		resp := c.Response()
-		http.SetCookie(resp.Writer(), &http.Cookie{Name: "access_token", Value: authData.AccessToken})
-		http.SetCookie(resp.Writer(), &http.Cookie{Name: "refresh_token", Value: authData.RefreshToken})
+		http.SetCookie(resp.Writer(), &http.Cookie{Name: config.AccessToken, Value: authData.AccessToken})
+		http.SetCookie(resp.Writer(), &http.Cookie{Name: config.RefreshToken, Value: authData.RefreshToken})
 		rv := url.Values{}
-		rv.Set("access_token", authData.AccessToken)
-		rv.Set("refresh_token", authData.RefreshToken)
+		rv.Set(config.AccessToken, authData.AccessToken)
+		rv.Set(config.RefreshToken, authData.RefreshToken)
 		return c.Redirect(http.StatusFound, "/#"+rv.Encode())
 	})
 
 	e.Get("/refresh_token", func(c *echo.Context) error {
 		refreshToken := c.Query("refresh_token")
 		v := url.Values{}
-		v.Set("client_id", config.ClientID)
-		v.Set("client_secret", config.ClientSecret)
+		v.Set("client_id", conf.ClientID)
+		v.Set("client_secret", conf.ClientSecret)
 		v.Set("grant_type", "refresh_token")
 		v.Set("refresh_token", refreshToken)
 
@@ -162,8 +148,22 @@ func main() {
 		if err != nil {
 			return err
 		}
-		http.SetCookie(c.Response().Writer(), &http.Cookie{Name: "access_token", Value: authData.AccessToken})
+		http.SetCookie(c.Response().Writer(), &http.Cookie{Name: config.AccessToken, Value: authData.AccessToken})
 		return c.JSON(http.StatusOK, authData)
+	})
+
+	e.Post("/upload", func(c *echo.Context) error {
+		mr, err := c.Request().MultipartReader()
+		if err != nil {
+			return err
+		}
+		part, err := mr.NextPart()
+		if err != nil {
+			return err
+		}
+		defer part.Close()
+		log.Info("%+v", part)
+		return collection.RunImportPipeline(c, part)
 	})
 
 	e.Run(":3000")

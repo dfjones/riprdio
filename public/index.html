@@ -48,6 +48,13 @@
         <dt>Country</dt><dd>{{country}}</dd>
       </dl>
     </div>
+    <h2>Upload</h2>
+    <div>
+      <form action="/upload" enctype="multipart/form-data" method="post">
+        <input type="file" name="file">
+        <input type="submit" value="Submit">
+      </form>
+    </div>
   </div>
 </script>
 
