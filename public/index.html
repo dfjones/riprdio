@@ -16,6 +16,9 @@
     #upload-progress-container {
     display: none;
     }
+    #upload-finished {
+    display: none;
+    }
   </style>
 </head>
 
@@ -24,6 +27,29 @@
   <div id="login">
     <h1>Import a Spotify Collection to Rdio</h1>
     <a href="/login" class="btn btn-primary">Log in with Spotify To Get Started</a>
+    <br><br>
+    <p>
+      Here's how this works: You will need to export your Rdio collection as a CSV file.
+      I've tested this importer with a CSV file produced by <a href="https://chrome.google.com/webstore/detail/rdio-enhancer/hmaalfaappddkggilhahaebfhdmmmngf?hl=en">Rdio Enhancer</a>
+      Chrome plugin.
+    </p>
+    <p>
+      Once you have your CSV file, press the login button above to securely login to your
+      Spotify account using OAuth.
+    </p>
+    <p>
+      On the next screen, you will see a form where you can upload your CSV file. The
+      importer will then look up all the songs in the file, checking if they exist in
+      Spotify. If a match is found, the song is added to your Spotify collection.
+    </p>
+    <p>
+      Note: This importer prefers albums over tracks, meaning for each song in your Rdio collection,
+      it will first try to find a matching album in Spotify and, if it is found, this album is
+      added to your Spotify collection. If the album can't be found, it will try to find
+      matching track/artist information and import just the single track. So, if your collection
+      in Rdio consists of a bunch of single tracks, this importer might not work well for you.
+      But the code is on <a href="https://github.com/dfjones/riprdio">github</a> :-)
+    </p>
   </div>
   <div id="loggedin">
     <div id="user-profile">
@@ -36,6 +62,9 @@
 <div id="upload-progress-container" class="container">
   <h2>Upload Progress</h2>
   <div id="upload-progress"></div>
+  <div id="upload-finished">
+    <h2>Import Finished!</h2>
+  </div>
   <h2>Songs Not Found</h2>
   <div id="songs-not-found"></div>
 </div>
@@ -57,7 +86,7 @@
     </div>
     <div id="upload-form">
       <h2>Upload</h2>
-      <form action="/upload" enctype="multipart/form-data" method="post">
+      <form action="upload" enctype="multipart/form-data" method="post">
         <input type="file" name="file">
         <input type="submit" value="Submit">
       </form>
@@ -165,6 +194,11 @@
 
                   eSource.addEventListener("notfound", function(e) {
                     $(notFoundContainer).append(songTemplate(JSON.parse(e.data)));
+                  });
+
+                  eSource.addEventListener("eof", function(e) {
+                    eSource.close();
+                    $('#upload-finished').show();
                   });
                 }
               }

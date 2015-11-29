@@ -20,8 +20,8 @@ const (
 	searchUrl   = "https://api.spotify.com/v1/search"
 	albumUrl    = "https://api.spotify.com/v1/me/albums"
 	trackUrl    = "https://api.spotify.com/v1/me/tracks"
-	concurrency = 10
-	maxRetries  = 10
+	concurrency = 5
+	maxRetries  = 20
 )
 
 var (
@@ -72,6 +72,7 @@ func (p *PipelineState) CreateSubscriber() chan *ProgressMessage {
 	p.mx.Lock()
 	defer p.mx.Unlock()
 	p.progressSubscribers = append(p.progressSubscribers, c)
+	log.Info("Created subscriber for pipeline: %s", p.Id)
 	return c
 }
 
@@ -81,6 +82,7 @@ func (p *PipelineState) RemoveSubscriber(s chan *ProgressMessage) {
 	for i, c := range p.progressSubscribers {
 		if c == s {
 			p.progressSubscribers = append(p.progressSubscribers[:i], p.progressSubscribers[i+1:]...)
+			log.Info("Removed subscriber for pipeline: %s", p.Id)
 			return
 		}
 	}
@@ -193,15 +195,16 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 		stats.TotalFound = stats.FoundAlbums + stats.FoundTracks
 		stats.ProgressPercent = 100.0 * float64(i) / float64(stats.ImportSize)
 		message.Stats = *stats
+		i++
 		subs := state.GetSubscribers()
 		for _, sub := range subs {
 			sub <- &message
 		}
-		i++
 	}
 	for _, sub := range state.GetSubscribers() {
 		close(sub)
 	}
+	removeRunningPipeline(state.Id)
 	log.Info("Finished import of %d songs, %d imported", stats.ImportSize, stats.TotalFound)
 }
 

@@ -167,7 +167,7 @@ func main() {
 		v.Set("pipeline_id", state.Id)
 		v.Set(config.AccessToken, accessToken.Value)
 		v.Set(config.RefreshToken, refreshToken.Value)
-		return c.Redirect(http.StatusFound, "/#"+v.Encode())
+		return c.Redirect(http.StatusFound, "#"+v.Encode())
 	})
 
 	e.Get("/progress/:id", func(c *echo.Context) error {
