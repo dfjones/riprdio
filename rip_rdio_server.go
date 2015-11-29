@@ -2,16 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/GeertJohan/go.rice"
 	"github.com/dfjones/riprdio/collection"
 	"github.com/dfjones/riprdio/config"
+	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
 	mw "github.com/labstack/echo/middleware"
 	"github.com/labstack/gommon/log"
-	"math/rand"
 	"net/http"
 	"net/url"
-	"time"
 )
 
 type AuthData struct {
@@ -22,8 +23,7 @@ type AuthData struct {
 }
 
 var (
-	runes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-	conf  config.Config
+	conf config.Config
 )
 
 const (
@@ -32,18 +32,6 @@ const (
 	redirectUri     = "http://localhost:3000/callback"
 	stateCookieKey  = "spotify_auth_state"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
-func randString(n int) string {
-	r := make([]rune, n)
-	for i := range r {
-		r[i] = runes[rand.Intn(len(runes))]
-	}
-	return string(r)
-}
 
 func main() {
 	config.LoadConfig("config.json")
@@ -67,7 +55,7 @@ func main() {
 	})
 
 	e.Get("/login", func(c *echo.Context) error {
-		state := randString(16)
+		state := token.RandString(16)
 		log.Info("state %s", state)
 		resp := c.Response()
 		http.SetCookie(resp.Writer(), &http.Cookie{Name: stateCookieKey, Value: state})
@@ -163,7 +151,58 @@ func main() {
 		}
 		defer part.Close()
 		log.Info("%+v", part)
-		return collection.RunImportPipeline(c, part)
+		state, err := collection.RunImportPipeline(c, part)
+		if err != nil {
+			return err
+		}
+		v := url.Values{}
+		v.Set("pipeline_id", state.Id)
+		return c.Redirect(http.StatusFound, "/#"+v.Encode())
+	})
+
+	e.Get("/progress/:id", func(c *echo.Context) error {
+		writer := c.Response().Writer()
+		flusher, ok := c.Response().Writer().(http.Flusher)
+		if !ok {
+			return errors.New("Streaming unsupported")
+		}
+		header := c.Response().Header()
+		header.Set("Content-Type", "text/event-stream")
+		header.Set("Cache-Control", "no-cache")
+		header.Set("Connection", "keep-alive")
+
+		id := c.Param("id")
+		log.Info("Looking up pipeline %s", id)
+		pipeline := collection.GetRunningPipeline(id)
+		if pipeline == nil {
+			return c.NoContent(http.StatusNotFound)
+		}
+
+		defer log.Info("progress method return for id %s", id)
+
+		sub := pipeline.CreateSubscriber()
+		defer pipeline.RemoveSubscriber(sub)
+
+		for message := range sub {
+			log.Info("Got message %+v", message)
+			statsJson, err := json.Marshal(message.Stats)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(writer, "event: progress\ndata: %s\n\n", statsJson)
+			if err != nil {
+				return err
+			}
+			if message.NotFoundSong != nil {
+				_, err = fmt.Fprintf(writer, "event: notfound\ndata: %s\n\n", message.NotFoundSong)
+				if err != nil {
+					return err
+				}
+			}
+			flusher.Flush()
+		}
+
+		return nil
 	})
 
 	e.Run(":3000")

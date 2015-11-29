@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/dfjones/riprdio/config"
+	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
 	"github.com/labstack/gommon/log"
 	"io"
@@ -21,28 +22,111 @@ const (
 	maxRetries  = 10
 )
 
-type spotifySong struct {
-	name            string
-	artist          string
-	album           string
-	spotifyAlbumUri string
-	spotifyTrackUri string
+var (
+	pipelines = pipelineStates{sync.Mutex{}, make(map[string]*PipelineState)}
+)
+
+type SpotifySong struct {
+	Name            string
+	Artist          string
+	Album           string
+	SpotifyAlbumUri string
+	SpotifyTrackUri string
+}
+
+type pipelineStates struct {
+	mutex   sync.Mutex
+	running map[string]*PipelineState
+}
+
+type PipelineState struct {
+	Id                  string
+	ProcessedSongs      chan *SpotifySong
+	Stats               PipelineStats
+	mx                  sync.Mutex
+	progressSubscribers []chan *ProgressMessage
+}
+
+type PipelineStats struct {
+	ImportSize      int
+	FoundAlbums     int
+	FoundTracks     int
+	TotalFound      int
+	NotFound        int
+	ProgressPercent float64
+}
+
+type ProgressMessage struct {
+	Stats        PipelineStats
+	NotFoundSong *SpotifySong
 }
 
 type searchJson map[string]interface{}
 
-func RunImportPipeline(context *echo.Context, reader io.Reader) error {
-	songs, err := Parse(reader)
-	_, err = Lookup(context, songs)
-	return err
+func (p *PipelineState) CreateSubscriber() chan *ProgressMessage {
+	c := make(chan *ProgressMessage)
+	p.mx.Lock()
+	defer p.mx.Unlock()
+	p.progressSubscribers = append(p.progressSubscribers, c)
+	return c
 }
 
-func Parse(reader io.Reader) ([]spotifySong, error) {
+func (p *PipelineState) RemoveSubscriber(s chan *ProgressMessage) {
+	p.mx.Lock()
+	defer p.mx.Unlock()
+	for i, c := range p.progressSubscribers {
+		if c == s {
+			p.progressSubscribers = append(p.progressSubscribers[:i], p.progressSubscribers[i+1:]...)
+			return
+		}
+	}
+}
+
+func (p *PipelineState) GetSubscribers() []chan *ProgressMessage {
+	p.mx.Lock()
+	defer p.mx.Unlock()
+	s := make([]chan *ProgressMessage, len(p.progressSubscribers))
+	copy(s, p.progressSubscribers)
+	return s
+}
+
+func RunImportPipeline(context *echo.Context, reader io.Reader) (*PipelineState, error) {
+	songs, err := Parse(reader)
+	if err != nil {
+		return nil, err
+	}
+	state, err := Process(context, songs)
+	if err != nil {
+		return state, err
+	}
+	addRunningPipeline(state)
+	return state, nil
+}
+
+func GetRunningPipeline(id string) *PipelineState {
+	pipelines.mutex.Lock()
+	defer pipelines.mutex.Unlock()
+	return pipelines.running[id]
+}
+
+func addRunningPipeline(pipeline *PipelineState) {
+	pipelines.mutex.Lock()
+	defer pipelines.mutex.Unlock()
+	pipelines.running[pipeline.Id] = pipeline
+}
+
+func removeRunningPipeline(id string) {
+	pipelines.mutex.Lock()
+	defer pipelines.mutex.Unlock()
+	delete(pipelines.running, id)
+}
+
+func Parse(reader io.Reader) ([]*SpotifySong, error) {
 	records, err := csv.NewReader(reader).ReadAll()
 	if err != nil {
 		return nil, err
 	}
-	songs := make([]spotifySong, 0)
+	songs := make([]*SpotifySong, 0)
 	for _, rr := range records[0] {
 		log.Info("Record %s", rr)
 	}
@@ -50,70 +134,73 @@ func Parse(reader io.Reader) ([]spotifySong, error) {
 		if len(r) < 2 {
 			log.Warn("Malformed record", r)
 		} else {
-			songs = append(songs, spotifySong{name: r[0], artist: r[1], album: r[2]})
+			songs = append(songs, &SpotifySong{Name: r[0], Artist: r[1], Album: r[2]})
 		}
 	}
 	log.Info("len %d", len(records))
 	return songs, nil
 }
 
-func Lookup(context *echo.Context, songs []spotifySong) ([]spotifySong, error) {
-	slen := len(songs)
-	in := make(chan spotifySong, concurrency)
-	lookupOut := make(chan spotifySong, concurrency)
-	loggerOut := make(chan spotifySong)
+func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error) {
+	state := &PipelineState{}
+	state.Id = token.RandString(16)
+	state.Stats.ImportSize = len(songs)
+	state.progressSubscribers = make([]chan *ProgressMessage, 0)
+	in := make(chan *SpotifySong, concurrency)
+	lookupOut := make(chan *SpotifySong, concurrency)
+	done := make(chan bool)
+	state.ProcessedSongs = make(chan *SpotifySong)
 	for i := 0; i < concurrency; i++ {
-		go asyncSearchSpotify(in, lookupOut, context)
+		go asyncSearchSpotify(in, lookupOut, done, context)
 	}
-	go progressLogger(slen, lookupOut, loggerOut)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	var finishedSongs []spotifySong
+	go progressUpdater(state, lookupOut)
 	go func() {
-		processedSongs := make([]spotifySong, 0)
-		for i := 0; i < slen; i++ {
-			song := <-loggerOut
-			processedSongs = append(processedSongs, song)
+		for _, song := range songs {
+			in <- song
+		}
+		close(in)
+	}()
+	go func() {
+		for i := 0; i < concurrency; i++ {
+			<-done
 		}
 		close(lookupOut)
-		finishedSongs = processedSongs
-		wg.Done()
 	}()
-
-	for _, song := range songs {
-		in <- song
-	}
-	close(in)
-
-	wg.Wait()
-	return finishedSongs, nil
+	return state, nil
 }
 
-func progressLogger(totalLen int, in <-chan spotifySong, out chan<- spotifySong) {
-	foundAlbum := 0
-	foundTrack := 0
-	notFound := 0
+func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
+	stats := &state.Stats
 	i := 0
 	for song := range in {
-		log.Info("foundAlbum=%d foundTrack=%d totalFound=%d notFound=%d percent=%2.1f", foundAlbum, foundTrack, foundAlbum+foundTrack, notFound, float64(i)/float64(totalLen)*100.0)
-		if song.spotifyAlbumUri != "" {
-			foundAlbum++
-		} else if song.spotifyTrackUri != "" {
-			foundTrack++
+		var message ProgressMessage
+		if song.SpotifyAlbumUri != "" {
+			stats.FoundAlbums++
+		} else if song.SpotifyTrackUri != "" {
+			stats.FoundTracks++
 		} else {
-			notFound++
+			stats.NotFound++
 			log.Info("Not found %+v", song)
+			message.NotFoundSong = song
+		}
+		stats.TotalFound = stats.FoundAlbums + stats.FoundTracks
+		stats.ProgressPercent = float64(i) / float64(stats.ImportSize)
+		message.Stats = *stats
+		subs := state.GetSubscribers()
+		for _, sub := range subs {
+			sub <- &message
 		}
 		i++
-		out <- song
 	}
-	log.Info("finished totalFound=%d foundAlbum=%d foundTrack=%d notFound=%d total=%d", foundAlbum+foundTrack, foundAlbum, foundTrack, notFound, totalLen)
+	for _, sub := range state.GetSubscribers() {
+		close(sub)
+	}
 }
 
-func searchTrack(context *echo.Context, song spotifySong) (spotifySong, error) {
+func searchTrack(context *echo.Context, song *SpotifySong) (*SpotifySong, error) {
 	v := url.Values{}
 	v.Set("type", "track")
-	v.Set("q", song.name+" artist:"+song.artist)
+	v.Set("q", song.Name+" artist:"+song.Artist)
 	reqUrl := searchUrl + "?" + v.Encode()
 	resp, err := getWithAuthToken(context, reqUrl, 0)
 	if err != nil {
@@ -133,15 +220,15 @@ func searchTrack(context *echo.Context, song spotifySong) (spotifySong, error) {
 	if len(items) > 0 {
 		itemObj := items[0].(map[string]interface{})
 		uri := itemObj["uri"].(string)
-		song.spotifyTrackUri = uri
+		song.SpotifyTrackUri = uri
 	}
 	return song, nil
 }
 
-func searchAlbum(context *echo.Context, song spotifySong) (spotifySong, error) {
+func searchAlbum(context *echo.Context, song *SpotifySong) (*SpotifySong, error) {
 	v := url.Values{}
 	v.Set("type", "album")
-	v.Set("q", song.album+" artist:"+song.artist)
+	v.Set("q", song.Album+" artist:"+song.Artist)
 	reqUrl := searchUrl + "?" + v.Encode()
 	resp, err := getWithAuthToken(context, reqUrl, 0)
 	if err != nil {
@@ -161,27 +248,28 @@ func searchAlbum(context *echo.Context, song spotifySong) (spotifySong, error) {
 	if len(items) > 0 {
 		itemObj := items[0].(map[string]interface{})
 		uri := itemObj["uri"].(string)
-		song.spotifyAlbumUri = uri
+		song.SpotifyAlbumUri = uri
 	}
 	return song, nil
 }
 
-func asyncSearchSpotify(in <-chan spotifySong, out chan<- spotifySong, context *echo.Context) {
+func asyncSearchSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context) {
 	for song := range in {
 		song = searchSpotify(context, song)
-		if song.spotifyTrackUri == "" && song.spotifyAlbumUri == "" {
+		if song.SpotifyTrackUri == "" && song.SpotifyAlbumUri == "" {
 			log.Warn("async not found %+v", song)
 		}
 		out <- song
 	}
+	done <- true
 }
 
-func searchSpotify(context *echo.Context, song spotifySong) spotifySong {
+func searchSpotify(context *echo.Context, song *SpotifySong) *SpotifySong {
 	song, err := searchAlbum(context, song)
 	if err != nil {
 		log.Warn("Error looking up album %+v %s", song, err)
 	}
-	if song.spotifyAlbumUri == "" {
+	if song.SpotifyAlbumUri == "" {
 		song, err = searchTrack(context, song)
 		if err != nil {
 			log.Warn("Error looking up track %+v %s", song, err)

@@ -13,6 +13,9 @@
     white-space: nowrap;
     width: 500px;
     }
+    #upload-progress {
+    display: none;
+    }
   </style>
 </head>
 
@@ -29,6 +32,10 @@
     </div>
     <button class="btn btn-default" id="obtain-new-token">Obtain new token using the refresh token</button>
   </div>
+</div>
+
+<div id="upload-progress">
+
 </div>
 
 <script id="user-profile-template" type="text/x-handlebars-template">
@@ -48,8 +55,8 @@
         <dt>Country</dt><dd>{{country}}</dd>
       </dl>
     </div>
-    <h2>Upload</h2>
-    <div>
+    <div id="upload-form">
+      <h2>Upload</h2>
       <form action="/upload" enctype="multipart/form-data" method="post">
         <input type="file" name="file">
         <input type="submit" value="Submit">
@@ -63,6 +70,17 @@
   <dl class="dl-horizontal">
     <dt>Access token</dt><dd class="text-overflow">{{access_token}}</dd>
     <dt>Refresh token</dt><dd class="text-overflow">{{refresh_token}}></dd>
+  </dl>
+</script>
+
+<script id="progress-template" type="text/x-handlebars-template">
+  <dl class="dl-horizontal">
+    <dt>Import Size</dt><dd>{{ImportSize}}</dd>
+    <dt>Total Found</dt><dd>{{TotalFound}}</dd>
+    <dt>Found Albums</dt><dd>{{FoundAlbums}}</dd>
+    <dt>Found Tracks</dt><dd>{{FoundTracks}}</dd>
+    <dt>Not Found</dt><dd>{{NotFound}}</dd>
+    <dt>Progress</dt><dd>{{ProgressPercent}}</dd>
   </dl>
 </script>
 
@@ -93,14 +111,28 @@
             oauthTemplate = Handlebars.compile(oauthSource),
             oauthPlaceholder = document.getElementById('oauth');
 
+        var progressSource = document.getElementById('progress-template').innerHTML,
+            progressTemplate = Handlebars.compile(progressSource),
+            progressPlaceholder = document.getElementById('upload-progress');
+
         var params = getHashParams();
 
         var access_token = params.access_token,
             refresh_token = params.refresh_token,
-            error = params.error;
+            error = params.error,
+            pipeline_id = params.pipeline_id;
 
         if (error) {
           alert('There was an error during the authentication');
+
+        } else if (pipeline_id) {
+          $('#upload-form').hide();
+          $('#upload-progress').show();
+          var eSource = new EventSource("/progress/"+pipeline_id);
+
+          eSource.addEventListener("progress", function(e) {
+            progressPlaceholder.innerHTML = progressTemplate(JSON.parse(e.data));
+          });
         } else {
           if (access_token) {
             // render oauth info
