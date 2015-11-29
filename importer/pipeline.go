@@ -18,6 +18,8 @@ import (
 
 const (
 	searchUrl   = "https://api.spotify.com/v1/search"
+	albumUrl    = "https://api.spotify.com/v1/me/albums"
+	trackUrl    = "https://api.spotify.com/v1/me/tracks"
 	concurrency = 10
 	maxRetries  = 10
 )
@@ -27,11 +29,12 @@ var (
 )
 
 type SpotifySong struct {
-	Name            string
-	Artist          string
-	Album           string
-	SpotifyAlbumUri string
-	SpotifyTrackUri string
+	Name           string
+	Artist         string
+	Album          string
+	SpotifyAlbumId string
+	SpotifyTrackId string
+	ImportError    error
 }
 
 type pipelineStates struct {
@@ -53,6 +56,7 @@ type PipelineStats struct {
 	FoundTracks     int
 	TotalFound      int
 	NotFound        int
+	Errors          int
 	ProgressPercent float64
 }
 
@@ -151,7 +155,7 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 	done := make(chan bool)
 	state.ProcessedSongs = make(chan *SpotifySong)
 	for i := 0; i < concurrency; i++ {
-		go asyncSearchSpotify(in, lookupOut, done, context)
+		go asyncImportSpotify(in, lookupOut, done, context)
 	}
 	go progressUpdater(state, lookupOut)
 	log.Info("Starting import of %d songs", len(songs))
@@ -175,13 +179,16 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 	i := 0
 	for song := range in {
 		var message ProgressMessage
-		if song.SpotifyAlbumUri != "" {
+		if song.SpotifyAlbumId != "" {
 			stats.FoundAlbums++
-		} else if song.SpotifyTrackUri != "" {
+		} else if song.SpotifyTrackId != "" {
 			stats.FoundTracks++
 		} else {
 			stats.NotFound++
 			message.NotFoundSong = song
+		}
+		if song.ImportError != nil {
+			stats.Errors++
 		}
 		stats.TotalFound = stats.FoundAlbums + stats.FoundTracks
 		stats.ProgressPercent = 100.0 * float64(i) / float64(stats.ImportSize)
@@ -203,7 +210,7 @@ func searchTrack(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 	v.Set("type", "track")
 	v.Set("q", song.Name+" artist:"+song.Artist)
 	reqUrl := searchUrl + "?" + v.Encode()
-	resp, err := getWithAuthToken(context, reqUrl, 0)
+	resp, err := getWithAuthToken(context, reqUrl)
 	if err != nil {
 		return song, err
 	}
@@ -220,8 +227,8 @@ func searchTrack(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 	items := tracks["items"].([]interface{})
 	if len(items) > 0 {
 		itemObj := items[0].(map[string]interface{})
-		uri := itemObj["uri"].(string)
-		song.SpotifyTrackUri = uri
+		id := itemObj["id"].(string)
+		song.SpotifyTrackId = id
 	}
 	return song, nil
 }
@@ -231,7 +238,7 @@ func searchAlbum(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 	v.Set("type", "album")
 	v.Set("q", song.Album+" artist:"+song.Artist)
 	reqUrl := searchUrl + "?" + v.Encode()
-	resp, err := getWithAuthToken(context, reqUrl, 0)
+	resp, err := getWithAuthToken(context, reqUrl)
 	if err != nil {
 		return song, err
 	}
@@ -248,18 +255,44 @@ func searchAlbum(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 	items := albums["items"].([]interface{})
 	if len(items) > 0 {
 		itemObj := items[0].(map[string]interface{})
-		uri := itemObj["uri"].(string)
-		song.SpotifyAlbumUri = uri
+		id := itemObj["id"].(string)
+		song.SpotifyAlbumId = id
 	}
 	return song, nil
 }
 
-func asyncSearchSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context) {
+func asyncImportSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context) {
 	for song := range in {
 		song = searchSpotify(context, song)
+		importSpotify(context, song)
 		out <- song
 	}
 	done <- true
+}
+
+func importSpotify(context *echo.Context, song *SpotifySong) {
+	var putUrl string
+	v := url.Values{}
+	if song.SpotifyAlbumId != "" {
+		putUrl = albumUrl
+		v.Set("ids", song.SpotifyAlbumId)
+	} else if song.SpotifyTrackId != "" {
+		putUrl = trackUrl
+		v.Set("ids", song.SpotifyTrackId)
+	}
+
+	if putUrl != "" {
+		resp, err := putWithAuthToken(context, putUrl+"?"+v.Encode())
+		if err != nil {
+			song.ImportError = err
+			log.Error("Error importing song %+v %v", song, err)
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			log.Error("Non-OK Status from API for %s: %s", putUrl, resp.Status)
+			song.ImportError = errors.New("Add song/album API returned status" + resp.Status)
+		}
+	}
 }
 
 func searchSpotify(context *echo.Context, song *SpotifySong) *SpotifySong {
@@ -267,7 +300,7 @@ func searchSpotify(context *echo.Context, song *SpotifySong) *SpotifySong {
 	if err != nil {
 		log.Warn("Error looking up album %+v %s", song, err)
 	}
-	if song.SpotifyAlbumUri == "" {
+	if song.SpotifyAlbumId == "" {
 		song, err = searchTrack(context, song)
 		if err != nil {
 			log.Warn("Error looking up track %+v %s", song, err)
@@ -276,17 +309,53 @@ func searchSpotify(context *echo.Context, song *SpotifySong) *SpotifySong {
 	return song
 }
 
-func getWithAuthToken(context *echo.Context, url string, retries int) (*http.Response, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
+func putWithAuthToken(context *echo.Context, url string) (*http.Response, error) {
+	r := func() (*http.Request, error) {
+		req, err := http.NewRequest("PUT", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		err = addAuthToken(context, req)
+		if err != nil {
+			return nil, err
+		}
+		return req, nil
 	}
+	return doWithRetry(r, 0)
+}
+
+func getWithAuthToken(context *echo.Context, url string) (*http.Response, error) {
+	r := func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		err = addAuthToken(context, req)
+		if err != nil {
+			return nil, err
+		}
+		return req, nil
+	}
+	return doWithRetry(r, 0)
+}
+
+func addAuthToken(context *echo.Context, req *http.Request) error {
 	tokenCookie, err := context.Request().Cookie(config.AccessToken)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	authValue := "Bearer " + tokenCookie.Value
 	req.Header.Add("Authorization", authValue)
+	return nil
+}
+
+type requestSupplier func() (*http.Request, error)
+
+func doWithRetry(reqS requestSupplier, retries int) (*http.Response, error) {
+	req, err := reqS()
+	if err != nil {
+		return nil, err
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err == nil && resp.StatusCode == 429 && retries < maxRetries {
 		// too many requests, retry if we can after a timeout
@@ -297,7 +366,7 @@ func getWithAuthToken(context *echo.Context, url string, retries int) (*http.Res
 		}
 		resp.Body.Close()
 		time.Sleep(time.Duration(timeout) * time.Second)
-		return getWithAuthToken(context, url, retries+1)
+		return doWithRetry(reqS, retries+1)
 	}
 	return resp, err
 }
