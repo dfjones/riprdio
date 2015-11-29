@@ -155,8 +155,18 @@ func main() {
 		if err != nil {
 			return err
 		}
+		accessToken, err := c.Request().Cookie(config.AccessToken)
+		if err != nil {
+			return err
+		}
+		refreshToken, err := c.Request().Cookie(config.RefreshToken)
+		if err != nil {
+			return err
+		}
 		v := url.Values{}
 		v.Set("pipeline_id", state.Id)
+		v.Set(config.AccessToken, accessToken.Value)
+		v.Set(config.RefreshToken, refreshToken.Value)
 		return c.Redirect(http.StatusFound, "/#"+v.Encode())
 	})
 
@@ -184,7 +194,6 @@ func main() {
 		defer pipeline.RemoveSubscriber(sub)
 
 		for message := range sub {
-			log.Info("Got message %+v", message)
 			statsJson, err := json.Marshal(message.Stats)
 			if err != nil {
 				return err
@@ -194,13 +203,23 @@ func main() {
 				return err
 			}
 			if message.NotFoundSong != nil {
-				_, err = fmt.Fprintf(writer, "event: notfound\ndata: %s\n\n", message.NotFoundSong)
+				songJson, err := json.Marshal(message.NotFoundSong)
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintf(writer, "event: notfound\ndata: %s\n\n", songJson)
 				if err != nil {
 					return err
 				}
 			}
 			flusher.Flush()
 		}
+
+		_, err := fmt.Fprintf(writer, "event: eof\n\n")
+		if err != nil {
+			return err
+		}
+		flusher.Flush()
 
 		return nil
 	})

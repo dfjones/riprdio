@@ -154,6 +154,7 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 		go asyncSearchSpotify(in, lookupOut, done, context)
 	}
 	go progressUpdater(state, lookupOut)
+	log.Info("Starting import of %d songs", len(songs))
 	go func() {
 		for _, song := range songs {
 			in <- song
@@ -180,11 +181,10 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 			stats.FoundTracks++
 		} else {
 			stats.NotFound++
-			log.Info("Not found %+v", song)
 			message.NotFoundSong = song
 		}
 		stats.TotalFound = stats.FoundAlbums + stats.FoundTracks
-		stats.ProgressPercent = float64(i) / float64(stats.ImportSize)
+		stats.ProgressPercent = 100.0 * float64(i) / float64(stats.ImportSize)
 		message.Stats = *stats
 		subs := state.GetSubscribers()
 		for _, sub := range subs {
@@ -195,6 +195,7 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 	for _, sub := range state.GetSubscribers() {
 		close(sub)
 	}
+	log.Info("Finished import of %d songs, %d imported", stats.ImportSize, stats.TotalFound)
 }
 
 func searchTrack(context *echo.Context, song *SpotifySong) (*SpotifySong, error) {
@@ -256,9 +257,6 @@ func searchAlbum(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 func asyncSearchSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context) {
 	for song := range in {
 		song = searchSpotify(context, song)
-		if song.SpotifyTrackUri == "" && song.SpotifyAlbumUri == "" {
-			log.Warn("async not found %+v", song)
-		}
 		out <- song
 	}
 	done <- true
@@ -298,7 +296,6 @@ func getWithAuthToken(context *echo.Context, url string, retries int) (*http.Res
 			return nil, err
 		}
 		resp.Body.Close()
-		log.Warn("Retrying after timeout=%d retries=%d", timeout, retries)
 		time.Sleep(time.Duration(timeout) * time.Second)
 		return getWithAuthToken(context, url, retries+1)
 	}

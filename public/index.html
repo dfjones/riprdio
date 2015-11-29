@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
 <head>
-  <title>Example of the Authorization Code flow with Spotify</title>
+  <title>RIP Rdio</title>
   <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css">
   <style type="text/css">
     #login, #loggedin {
@@ -13,7 +13,7 @@
     white-space: nowrap;
     width: 500px;
     }
-    #upload-progress {
+    #upload-progress-container {
     display: none;
     }
   </style>
@@ -22,20 +22,22 @@
 <body>
 <div class="container">
   <div id="login">
-    <h1>This is an example of the Authorization Code flow</h1>
-    <a href="/login" class="btn btn-primary">Log in with Spotify</a>
+    <h1>Import a Spotify Collection to Rdio</h1>
+    <a href="/login" class="btn btn-primary">Log in with Spotify To Get Started</a>
   </div>
   <div id="loggedin">
     <div id="user-profile">
     </div>
     <div id="oauth">
     </div>
-    <button class="btn btn-default" id="obtain-new-token">Obtain new token using the refresh token</button>
   </div>
 </div>
 
-<div id="upload-progress">
-
+<div id="upload-progress-container" class="container">
+  <h2>Upload Progress</h2>
+  <div id="upload-progress"></div>
+  <h2>Songs Not Found</h2>
+  <div id="songs-not-found"></div>
 </div>
 
 <script id="user-profile-template" type="text/x-handlebars-template">
@@ -50,8 +52,6 @@
         <dt>Id</dt><dd>{{id}}</dd>
         <dt>Email</dt><dd>{{email}}</dd>
         <dt>Spotify URI</dt><dd><a href="{{external_urls.spotify}}">{{external_urls.spotify}}</a></dd>
-        <dt>Link</dt><dd><a href="{{href}}">{{href}}</a></dd>
-        <dt>Profile Image</dt><dd class="clearfix"><a href="{{images.0.url}}">{{images.0.url}}</a></dd>
         <dt>Country</dt><dd>{{country}}</dd>
       </dl>
     </div>
@@ -81,6 +81,14 @@
     <dt>Found Tracks</dt><dd>{{FoundTracks}}</dd>
     <dt>Not Found</dt><dd>{{NotFound}}</dd>
     <dt>Progress</dt><dd>{{ProgressPercent}}</dd>
+  </dl>
+</script>
+
+<script id="song-template" type="text/x-handlebars-template">
+  <dl class="dl-horizontal">
+    <dt>Track</dt><dd>{{Name}}</dd>
+    <dt>Album</dt><dd>{{Album}}</dd>
+    <dt>Artist</dt><dd>{{Artist}}</dd>
   </dl>
 </script>
 
@@ -115,6 +123,10 @@
             progressTemplate = Handlebars.compile(progressSource),
             progressPlaceholder = document.getElementById('upload-progress');
 
+        var songSource = document.getElementById('song-template').innerHTML,
+            songTemplate = Handlebars.compile(songSource),
+            notFoundContainer = document.getElementById('songs-not-found');
+
         var params = getHashParams();
 
         var access_token = params.access_token,
@@ -124,56 +136,44 @@
 
         if (error) {
           alert('There was an error during the authentication');
+          return;
+        }
 
-        } else if (pipeline_id) {
-          $('#upload-form').hide();
-          $('#upload-progress').show();
-          var eSource = new EventSource("/progress/"+pipeline_id);
 
-          eSource.addEventListener("progress", function(e) {
-            progressPlaceholder.innerHTML = progressTemplate(JSON.parse(e.data));
+
+        if (access_token) {
+          $.ajax({
+              url: 'https://api.spotify.com/v1/me',
+              headers: {
+                'Authorization': 'Bearer ' + access_token
+              },
+              success: function(response) {
+                userProfilePlaceholder.innerHTML = userProfileTemplate(response);
+
+                $('#login').hide();
+                $('#loggedin').show();
+
+                if (pipeline_id) {
+                  $('#upload-form').hide();
+                  $('#upload-progress-container').show();
+                  var eSource = new EventSource("/progress/"+pipeline_id);
+
+                  eSource.addEventListener("progress", function(e) {
+                    progressPlaceholder.innerHTML = progressTemplate(JSON.parse(e.data));
+                  });
+
+                  eSource.addEventListener("notfound", function(e) {
+                    $(notFoundContainer).append(songTemplate(JSON.parse(e.data)));
+                  });
+                }
+              }
           });
         } else {
-          if (access_token) {
-            // render oauth info
-            oauthPlaceholder.innerHTML = oauthTemplate({
-              access_token: access_token,
-              refresh_token: refresh_token
-            });
-
-            $.ajax({
-                url: 'https://api.spotify.com/v1/me',
-                headers: {
-                  'Authorization': 'Bearer ' + access_token
-                },
-                success: function(response) {
-                  userProfilePlaceholder.innerHTML = userProfileTemplate(response);
-
-                  $('#login').hide();
-                  $('#loggedin').show();
-                }
-            });
-          } else {
-              // render initial screen
-              $('#login').show();
-              $('#loggedin').hide();
-          }
-
-          document.getElementById('obtain-new-token').addEventListener('click', function() {
-            $.ajax({
-              url: '/refresh_token',
-              data: {
-                'refresh_token': refresh_token
-              }
-            }).done(function(data) {
-              access_token = data.access_token;
-              oauthPlaceholder.innerHTML = oauthTemplate({
-                access_token: access_token,
-                refresh_token: refresh_token
-              });
-            });
-          }, false);
+            // render initial screen
+            $('#login').show();
+            $('#loggedin').hide();
         }
       })();
     </script>
+</body>
 </html>
