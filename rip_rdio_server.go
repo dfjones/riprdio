@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/GeertJohan/go.rice"
-	"github.com/dfjones/riprdio/collection"
 	"github.com/dfjones/riprdio/config"
+	"github.com/dfjones/riprdio/importer"
 	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
 	mw "github.com/labstack/echo/middleware"
@@ -151,7 +151,7 @@ func main() {
 		}
 		defer part.Close()
 		log.Info("%+v", part)
-		state, err := collection.RunImportPipeline(c, part)
+		state, err := importer.RunImportPipeline(c, part)
 		if err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func main() {
 
 		id := c.Param("id")
 		log.Info("Looking up pipeline %s", id)
-		pipeline := collection.GetRunningPipeline(id)
+		pipeline := importer.GetRunningPipeline(id)
 		if pipeline == nil {
 			return c.NoContent(http.StatusNotFound)
 		}

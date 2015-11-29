@@ -1,4 +1,4 @@
-package collection
+package importer
 
 import (
 	"encoding/csv"
