@@ -21,7 +21,7 @@ const (
 	albumUrl    = "https://api.spotify.com/v1/me/albums"
 	trackUrl    = "https://api.spotify.com/v1/me/tracks"
 	concurrency = 3
-	maxRetries  = 20
+	maxRetries  = 50
 )
 
 var (
