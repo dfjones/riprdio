@@ -20,7 +20,7 @@ const (
 	searchUrl   = "https://api.spotify.com/v1/search"
 	albumUrl    = "https://api.spotify.com/v1/me/albums"
 	trackUrl    = "https://api.spotify.com/v1/me/tracks"
-	concurrency = 5
+	concurrency = 3
 	maxRetries  = 20
 )
 
