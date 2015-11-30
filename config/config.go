@@ -12,9 +12,10 @@ const (
 )
 
 type Config struct {
-	ClientID      string `json:"clientId"`
-	ClientSecret  string `json:"clientSecret"`
-	OAuthCallback string `json:"oauthCallback"`
+	ClientID       string `json:"clientId"`
+	ClientSecret   string `json:"clientSecret"`
+	OAuthCallback  string `json:"oauthCallback"`
+	RedirectPrefix string `json:"redirectPrefix"`
 }
 
 var config Config
