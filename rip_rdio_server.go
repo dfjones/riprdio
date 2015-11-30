@@ -29,7 +29,7 @@ var (
 const (
 	scope           = "user-read-private user-read-email playlist-read-private playlist-modify-public playlist-modify-private user-library-read user-library-modify playlist-read-collaborative"
 	spotifyTokenUrl = "https://accounts.spotify.com/api/token"
-	redirectUri     = "http://localhost:3000/callback"
+	redirectUri     = "http://localhost:3030/callback"
 	stateCookieKey  = "spotify_auth_state"
 )
 
@@ -120,7 +120,7 @@ func main() {
 		rv := url.Values{}
 		rv.Set(config.AccessToken, authData.AccessToken)
 		rv.Set(config.RefreshToken, authData.RefreshToken)
-		return c.Redirect(http.StatusFound, "/#"+rv.Encode())
+		return c.Redirect(http.StatusFound, "../#"+rv.Encode())
 	})
 
 	e.Get("/refresh_token", func(c *echo.Context) error {
