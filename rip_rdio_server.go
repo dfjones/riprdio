@@ -91,9 +91,13 @@ func main() {
 		storedState.Value = ""
 		http.SetCookie(c.Response().Writer(), storedState)
 
+		ruri := conf.OAuthCallback
+		if ruri == "" {
+			ruri = redirectUri
+		}
 		v := url.Values{}
 		v.Set("code", code)
-		v.Set("redirect_uri", redirectUri)
+		v.Set("redirect_uri", ruri)
 		v.Set("grant_type", "authorization_code")
 		v.Set("client_id", conf.ClientID)
 		v.Set("client_secret", conf.ClientSecret)
