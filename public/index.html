@@ -196,7 +196,7 @@
                     $(notFoundContainer).append(songTemplate(JSON.parse(e.data)));
                   });
 
-                  eSource.addEventListener("eof", function(e) {
+                  eSource.addEventListener("end", function(e) {
                     eSource.close();
                     $('#upload-finished').show();
                   });

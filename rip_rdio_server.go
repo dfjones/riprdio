@@ -223,11 +223,12 @@ func main() {
 			flusher.Flush()
 		}
 
-		_, err := fmt.Fprintf(writer, "event: eof\n\n")
+		_, err := fmt.Fprintf(writer, "event: end\ndata:%s\n\n", `{"end": true}`)
 		if err != nil {
 			return err
 		}
 		flusher.Flush()
+		log.Info("Wrote end event to client.")
 
 		return nil
 	})

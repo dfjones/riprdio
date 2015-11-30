@@ -178,7 +178,7 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 
 func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 	stats := &state.Stats
-	i := 0
+	i := 1
 	for song := range in {
 		var message ProgressMessage
 		if song.SpotifyAlbumId != "" {
