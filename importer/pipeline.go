@@ -360,16 +360,21 @@ func doWithRetry(reqS requestSupplier, retries int) (*http.Response, error) {
 		return nil, err
 	}
 	resp, err := http.DefaultClient.Do(req)
-	if err == nil && resp.StatusCode == 429 && retries < maxRetries {
-		// too many requests, retry if we can after a timeout
-		// the timeout is in the Retry-After and it is in number of seconds
-		timeout, err := strconv.Atoi(resp.Header.Get("Retry-After"))
-		if err != nil {
-			return nil, err
+	if err == nil && resp.StatusCode == 429 {
+		if retries < maxRetries {
+			// too many requests, retry if we can after a timeout
+			// the timeout is in the Retry-After and it is in number of seconds
+			timeout, err := strconv.Atoi(resp.Header.Get("Retry-After"))
+			if err != nil {
+				return nil, err
+			}
+			resp.Body.Close()
+			time.Sleep(time.Duration(timeout) * time.Second)
+			return doWithRetry(reqS, retries+1)
+		} else {
+			log.Warn("Too many retries. Giving up %s", req.URL.String())
+			return resp, err
 		}
-		resp.Body.Close()
-		time.Sleep(time.Duration(timeout) * time.Second)
-		return doWithRetry(reqS, retries+1)
 	}
 	return resp, err
 }
