@@ -186,7 +186,7 @@
                 if (pipeline_id) {
                   $('#upload-form').hide();
                   $('#upload-progress-container').show();
-                  var eSource = new EventSource("/progress/"+pipeline_id);
+                  var eSource = new EventSource("progress/"+pipeline_id);
 
                   eSource.addEventListener("progress", function(e) {
                     progressPlaceholder.innerHTML = progressTemplate(JSON.parse(e.data));
