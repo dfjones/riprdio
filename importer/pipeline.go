@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"strings"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 	trackUrl    = "https://api.spotify.com/v1/me/tracks"
 	concurrency = 3
 	maxRetries  = 50
+	batchSize = 50
 )
 
 var (
@@ -174,13 +176,13 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 	state.progressSubscribers = make([]chan *ProgressMessage, 0)
 	state.albumIdCache = make(map[string]string)
 	in := make(chan *SpotifySong, concurrency)
-	lookupOut := make(chan *SpotifySong, concurrency)
+	importOut := make(chan *SpotifySong, concurrency)
 	done := make(chan bool)
 	state.ProcessedSongs = make(chan *SpotifySong)
 	for i := 0; i < concurrency; i++ {
-		go asyncImportSpotify(in, lookupOut, done, context, state)
+		go asyncImportSpotify(in, importOut, done, context, state)
 	}
-	go progressUpdater(state, lookupOut)
+	go progressUpdater(state, importOut)
 	log.Info("Starting import of %d songs", len(songs))
 	go func() {
 		for _, song := range songs {
@@ -192,7 +194,7 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 		for i := 0; i < concurrency; i++ {
 			<-done
 		}
-		close(lookupOut)
+		close(importOut)
 	}()
 	return state, nil
 }
@@ -291,37 +293,82 @@ func searchAlbum(context *echo.Context, p *PipelineState, song *SpotifySong) (*S
 }
 
 func asyncImportSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context, p *PipelineState) {
+	batch := make(chan *SpotifySong)
+
+	go asyncBatchImport(context, batch, done, out)
+
 	for song := range in {
 		song = searchSpotify(context, p, song)
-		importSpotify(context, song)
-		out <- song
+		batch <- song
 	}
+
+	close(batch)
+}
+
+func asyncBatchImport(context *echo.Context, in <-chan *SpotifySong, done chan<- bool, out chan<- *SpotifySong) {
+	batch := make([]*SpotifySong, 0, batchSize)
+
+	runBatch := func() {
+		err := importSpotify(context, batch)
+		for _,song := range batch {
+			song.ImportError = err
+			out <- song
+		}
+		batch = make([]*SpotifySong, 0, batchSize)
+	}
+
+	for song := range in {
+		batch = append(batch, song)
+		if len(batch) >= batchSize {
+			runBatch()
+		}
+	}
+
+	runBatch()
 	done <- true
 }
 
-func importSpotify(context *echo.Context, song *SpotifySong) {
-	var putUrl string
-	v := url.Values{}
-	if song.SpotifyAlbumId != "" {
-		putUrl = albumUrl
-		v.Set("ids", song.SpotifyAlbumId)
-	} else if song.SpotifyTrackId != "" {
-		putUrl = trackUrl
-		v.Set("ids", song.SpotifyTrackId)
+func importSpotify(context *echo.Context, songs []*SpotifySong) error {
+	albumIdSet:= make(map[string]bool)
+	trackIds := make([]string, 0)
+	toPut := make(map[string][]string)
+
+	for _,song := range songs {
+		if song.SpotifyAlbumId != "" {
+			albumIdSet[song.SpotifyAlbumId] = true
+		} else if song.SpotifyTrackId != "" {
+			trackIds = append(trackIds, song.SpotifyTrackId)
+		}
 	}
 
-	if putUrl != "" {
-		resp, err := putWithAuthToken(context, putUrl+"?"+v.Encode())
-		if err != nil {
-			song.ImportError = err
-			log.Error("Error importing song %+v %v", song, err)
-			return
+	albumIds := make([]string, 0, len(albumIdSet))
+	for albumId, _ := range albumIdSet {
+		albumIds = append(albumIds, albumId)
+	}
+
+	toPut[albumUrl] = albumIds
+	toPut[trackUrl] = trackIds
+
+	for putUrl, ids := range toPut {
+		if len(ids) == 0 {
+			continue
 		}
-		if resp.StatusCode != http.StatusOK {
-			log.Error("Non-OK Status from API for %s: %s", putUrl, resp.Status)
-			song.ImportError = errors.New("Add song/album API returned status" + resp.Status)
+		v := url.Values{}
+		v.Set("ids", strings.Join(ids, ","))
+		if putUrl != "" {
+			resp, err := putWithAuthToken(context, putUrl + "?" + v.Encode())
+			if err != nil {
+				log.Error("Error importing song batch to url %s %s", putUrl, err)
+				return err
+			}
+			if resp.StatusCode != http.StatusOK {
+				log.Error("Non-OK Status from API for %s: %s", putUrl, resp.Status)
+				return errors.New("Add song/album API returned status" + resp.Status)
+			}
 		}
 	}
+
+	return nil
 }
 
 func searchSpotify(context *echo.Context, p *PipelineState, song *SpotifySong) *SpotifySong {
