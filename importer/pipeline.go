@@ -48,6 +48,7 @@ type PipelineState struct {
 	Stats               PipelineStats
 	mx                  sync.Mutex
 	progressSubscribers []chan *ProgressMessage
+	albumIdCache		map[string]string
 }
 
 type PipelineStats struct {
@@ -94,6 +95,25 @@ func (p *PipelineState) GetSubscribers() []chan *ProgressMessage {
 	s := make([]chan *ProgressMessage, len(p.progressSubscribers))
 	copy(s, p.progressSubscribers)
 	return s
+}
+
+func (p *PipelineState) CacheAlbumId(album string, artist string, albumId string) {
+	key := makeAlbumCacheKey(album, artist)
+	p.mx.Lock()
+	defer p.mx.Unlock()
+	p.albumIdCache[key] = albumId
+}
+
+func (p *PipelineState) GetCachedAlbumId(album string, artist string) (string, bool) {
+	key := makeAlbumCacheKey(album, artist)
+	p.mx.Lock()
+	defer p.mx.Unlock()
+	v, ok := p.albumIdCache[key]
+	return v, ok
+}
+
+func makeAlbumCacheKey(album string, artist string) string {
+	return album + "-" + artist
 }
 
 func RunImportPipeline(context *echo.Context, reader io.Reader) (*PipelineState, error) {
@@ -152,12 +172,13 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 	state.Id = token.RandString(16)
 	state.Stats.ImportSize = len(songs)
 	state.progressSubscribers = make([]chan *ProgressMessage, 0)
+	state.albumIdCache = make(map[string]string)
 	in := make(chan *SpotifySong, concurrency)
 	lookupOut := make(chan *SpotifySong, concurrency)
 	done := make(chan bool)
 	state.ProcessedSongs = make(chan *SpotifySong)
 	for i := 0; i < concurrency; i++ {
-		go asyncImportSpotify(in, lookupOut, done, context)
+		go asyncImportSpotify(in, lookupOut, done, context, state)
 	}
 	go progressUpdater(state, lookupOut)
 	log.Info("Starting import of %d songs", len(songs))
@@ -236,7 +257,11 @@ func searchTrack(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 	return song, nil
 }
 
-func searchAlbum(context *echo.Context, song *SpotifySong) (*SpotifySong, error) {
+func searchAlbum(context *echo.Context, p *PipelineState, song *SpotifySong) (*SpotifySong, error) {
+	if cachedId, ok := p.GetCachedAlbumId(song.Album, song.Artist); ok {
+		song.SpotifyAlbumId = cachedId
+		return song, nil
+	}
 	v := url.Values{}
 	v.Set("type", "album")
 	v.Set("q", song.Album+" artist:"+song.Artist)
@@ -260,13 +285,14 @@ func searchAlbum(context *echo.Context, song *SpotifySong) (*SpotifySong, error)
 		itemObj := items[0].(map[string]interface{})
 		id := itemObj["id"].(string)
 		song.SpotifyAlbumId = id
+		p.CacheAlbumId(song.Album, song.Artist, id)
 	}
 	return song, nil
 }
 
-func asyncImportSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context) {
+func asyncImportSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context, p *PipelineState) {
 	for song := range in {
-		song = searchSpotify(context, song)
+		song = searchSpotify(context, p, song)
 		importSpotify(context, song)
 		out <- song
 	}
@@ -298,8 +324,8 @@ func importSpotify(context *echo.Context, song *SpotifySong) {
 	}
 }
 
-func searchSpotify(context *echo.Context, song *SpotifySong) *SpotifySong {
-	song, err := searchAlbum(context, song)
+func searchSpotify(context *echo.Context, p *PipelineState, song *SpotifySong) *SpotifySong {
+	song, err := searchAlbum(context, p, song)
 	if err != nil {
 		log.Warn("Error looking up album %+v %s", song, err)
 	}
