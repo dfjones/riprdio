@@ -248,8 +248,10 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 		if song.ImportError != nil {
 			stats.Errors++
 		}
+		state.mx.Lock()
 		stats.TotalFound = stats.FoundAlbums + stats.FoundTracks
 		stats.ProgressPercent = 100.0 * float64(i) / float64(stats.ImportSize)
+		state.mx.Unlock()
 		message.Stats = *stats
 		i++
 		subs := state.GetSubscribers()
