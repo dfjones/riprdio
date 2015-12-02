@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 	"strings"
+	"runtime"
 )
 
 const (
@@ -48,6 +49,7 @@ type PipelineState struct {
 	Id                  string
 	ProcessedSongs      chan *SpotifySong
 	Stats               PipelineStats
+	StartTime			time.Time
 	mx                  sync.Mutex
 	progressSubscribers []chan *ProgressMessage
 	albumIdCache		map[string]string
@@ -69,6 +71,31 @@ type ProgressMessage struct {
 }
 
 type searchJson map[string]interface{}
+
+func init() {
+	go func() {
+		for _ = range time.Tick(time.Minute) {
+			snapshot := getRunningPipelineSnapshot()
+			log.Info("Goroutines=%d", runtime.NumGoroutine())
+			log.Info("Running pipelines %d", len(snapshot))
+			for _,state := range pipelines.running {
+				state.mx.Lock()
+				log.Info("Pipeline id %s progress %2.1f", state.Id, state.Stats.ProgressPercent)
+				state.mx.Unlock()
+			}
+		}
+	}()
+}
+
+func getRunningPipelineSnapshot() []*PipelineState {
+	states := make([]*PipelineState, 0)
+	pipelines.mutex.Lock()
+	for _,s := range pipelines.running {
+		states = append(states, s)
+	}
+	pipelines.mutex.Unlock()
+	return states
+}
 
 func (p *PipelineState) CreateSubscriber() chan *ProgressMessage {
 	c := make(chan *ProgressMessage)
@@ -149,6 +176,17 @@ func removeRunningPipeline(id string) {
 	delete(pipelines.running, id)
 }
 
+func newPipelineState(importSize int) *PipelineState {
+	state := &PipelineState{}
+	state.Id = token.RandString(16)
+	state.ProcessedSongs = make(chan *SpotifySong)
+	state.progressSubscribers = make([]chan *ProgressMessage, 0)
+	state.Stats.ImportSize = importSize
+	state.albumIdCache = make(map[string]string)
+	state.StartTime = time.Now()
+	return state
+}
+
 func Parse(reader io.Reader) ([]*SpotifySong, error) {
 	records, err := csv.NewReader(reader).ReadAll()
 	if err != nil {
@@ -170,20 +208,15 @@ func Parse(reader io.Reader) ([]*SpotifySong, error) {
 }
 
 func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error) {
-	state := &PipelineState{}
-	state.Id = token.RandString(16)
-	state.Stats.ImportSize = len(songs)
-	state.progressSubscribers = make([]chan *ProgressMessage, 0)
-	state.albumIdCache = make(map[string]string)
+	state := newPipelineState(len(songs))
 	in := make(chan *SpotifySong, concurrency)
 	importOut := make(chan *SpotifySong, concurrency)
 	done := make(chan bool)
-	state.ProcessedSongs = make(chan *SpotifySong)
 	for i := 0; i < concurrency; i++ {
 		go asyncImportSpotify(in, importOut, done, context, state)
 	}
 	go progressUpdater(state, importOut)
-	log.Info("Starting import of %d songs", len(songs))
+	log.Info("Starting import of %d songs for id=%s", len(songs), state.Id)
 	go func() {
 		for _, song := range songs {
 			in <- song
@@ -228,7 +261,9 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 		close(sub)
 	}
 	removeRunningPipeline(state.Id)
-	log.Info("Finished import of %d songs, %d imported", stats.ImportSize, stats.TotalFound)
+	delta := time.Since(state.StartTime)
+	log.Info("Finished import id=%s imported=%d of total songs=%d time=%s", state.Id, stats.TotalFound,
+		stats.ImportSize, delta.String())
 }
 
 func searchTrack(context *echo.Context, song *SpotifySong) (*SpotifySong, error) {
