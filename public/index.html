@@ -50,9 +50,16 @@
       in Rdio consists of a bunch of single tracks, this importer might not work well for you.
       But the code is on <a href="https://github.com/dfjones/riprdio">github</a> :-)
     </p>
+
     <h2>Updates</h2>
     <ul>
       <li>Speed! Reduction in the number of Spotify API calls resulted in a ~5x speedup of total import time.</li>
+      <li>
+        Spotify appears to have a limit of 10k items on your music collection. If the collection you are importing
+        is over this size, you may run into issues. After some digging, it appears that all of the songs on an album are
+        counted toward the limit, so it doesn't help that this importer prefers to add an album over a single song to
+        your collection. :-(
+      </li>
     </ul>
   </div>
   <div id="loggedin">
