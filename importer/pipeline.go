@@ -16,6 +16,7 @@ import (
 	"time"
 	"strings"
 	"runtime"
+	"io/ioutil"
 )
 
 const (
@@ -399,7 +400,8 @@ func importSpotify(context *echo.Context, songs []*SpotifySong) error {
 				return err
 			}
 			if resp.StatusCode != http.StatusOK {
-				log.Error("Non-OK Status from API for %s: %s", putUrl, resp.Status)
+				body, _ := ioutil.ReadAll(resp.Body)
+				log.Error("Non-OK Status from API for %s: %s \n %s", putUrl, resp.Status, body)
 				return errors.New("Add song/album API returned status" + resp.Status)
 			}
 		}
