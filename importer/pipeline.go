@@ -193,10 +193,10 @@ func Parse(reader io.Reader) ([]*SpotifySong, error) {
 	if err != nil {
 		return nil, err
 	}
-	songs := make([]*SpotifySong, 0)
-	for _, rr := range records[0] {
-		log.Info("Record %s", rr)
+	if len(records) == 0 {
+		return nil, errors.New("CSV appears to have no records")
 	}
+	songs := make([]*SpotifySong, 0)
 	for _, r := range records[1:] {
 		if len(r) < 2 {
 			log.Warn("Malformed record", r)
