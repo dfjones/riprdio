@@ -1,7 +1,6 @@
 package importer
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"github.com/dfjones/riprdio/config"
@@ -20,6 +19,7 @@ import (
 )
 
 const (
+	defaultContentType = "text/csv"
 	searchUrl   = "https://api.spotify.com/v1/search"
 	albumUrl    = "https://api.spotify.com/v1/me/albums"
 	trackUrl    = "https://api.spotify.com/v1/me/tracks"
@@ -30,7 +30,16 @@ const (
 
 var (
 	pipelines = pipelineStates{sync.Mutex{}, make(map[string]*PipelineState)}
+	formats []*format
 )
+
+type format struct {
+	name string
+	contentType string
+	parse Parse
+}
+
+type Parse func(reader io.Reader) ([]*SpotifySong, error)
 
 type SpotifySong struct {
 	Name           string
@@ -86,6 +95,24 @@ func init() {
 			}
 		}
 	}()
+}
+
+func RegisterFormat(name, contentType string, parser Parse) {
+	formats = append(formats, &format{name, contentType, parser})
+}
+
+func selectFormat(contentType string) *format {
+	var defaultFormat *format
+	for _,f := range formats {
+		if f.contentType == defaultContentType {
+			defaultFormat = f
+		}
+		if f.contentType == contentType {
+			return f
+		}
+	}
+	// no match...CSV was the original format supported, so select that
+	return defaultFormat
 }
 
 func getRunningPipelineSnapshot() []*PipelineState {
@@ -146,8 +173,14 @@ func makeAlbumCacheKey(album string, artist string) string {
 	return album + "-" + artist
 }
 
-func RunImportPipeline(context *echo.Context, reader io.Reader) (*PipelineState, error) {
-	songs, err := Parse(reader)
+func RunImportPipeline(context *echo.Context, contentType string, reader io.Reader) (*PipelineState, error) {
+	format := selectFormat(contentType)
+	if format == nil {
+		log.Warn("No format found for content type %s", contentType)
+		return nil, errors.New("No matching content type")
+	}
+	log.Info("Selected format %s for content type %s", format.name, contentType)
+	songs, err := format.parse(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -186,26 +219,6 @@ func newPipelineState(importSize int) *PipelineState {
 	state.albumIdCache = make(map[string]string)
 	state.StartTime = time.Now()
 	return state
-}
-
-func Parse(reader io.Reader) ([]*SpotifySong, error) {
-	records, err := csv.NewReader(reader).ReadAll()
-	if err != nil {
-		return nil, err
-	}
-	if len(records) == 0 {
-		return nil, errors.New("CSV appears to have no records")
-	}
-	songs := make([]*SpotifySong, 0)
-	for _, r := range records[1:] {
-		if len(r) < 2 {
-			log.Warn("Malformed record", r)
-		} else {
-			songs = append(songs, &SpotifySong{Name: r[0], Artist: r[1], Album: r[2]})
-		}
-	}
-	log.Info("len %d", len(records))
-	return songs, nil
 }
 
 func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error) {
@@ -347,7 +360,8 @@ func asyncBatchImport(context *echo.Context, in <-chan *SpotifySong, done chan<-
 	batch := make([]*SpotifySong, 0, batchSize)
 
 	runBatch := func() {
-		err := importSpotify(context, batch)
+		var err error
+		//err := importSpotify(context, batch)
 		for _,song := range batch {
 			song.ImportError = err
 			out <- song

@@ -1,0 +1,131 @@
+{
+  "users": [
+    {
+      "userKey": "s212940",
+      "syncedKeys": [
+        "t2062705",
+        "t2062726",
+        "t2062763"
+      ],
+      "favoritesKeys": [
+        "t209631",
+        "t209644",
+        "t209656",
+        "t209669",
+        "t354768",
+        "t354774",
+        "t354781"
+      ],
+      "playlistsKeys": {
+        "owned": [
+          "p10314807",
+          "p99854"
+        ]
+      }
+    }
+  ],
+  "objects": {
+    "t2213826": {
+      "radioKey": "sr2213826",
+      "baseIcon": "album/b/5/d/000000000002cd5b/square-200.jpg",
+      "canDownloadAlbumOnly": false,
+      "radio": {
+        "type": "sr",
+        "key": "sr2213826"
+      },
+      "artistUrl": "/artist/R%C3%B6yksopp/",
+      "duration": 218,
+      "dynamicIcon": "http://rdiodynimages3-a.akamaihd.net/?l=a183643-0",
+      "album": "Melody AM",
+      "isrcs": [
+        "GBCFC0100048"
+      ],
+      "isClean": false,
+      "albumUrl": "/artist/R%C3%B6yksopp/album/Melody_AM/",
+      "shortUrl": "http://rd.io/x/QitjmIE/",
+      "albumArtist": "Röyksopp",
+      "canStream": false,
+      "embedUrl": "https://rd.io/e/QitjmIE/",
+      "type": "t",
+      "bigIcon": "http://rdio3img-a.akamaihd.net/album/b/5/d/000000000002cd5b/square-600.jpg",
+      "iconKey": "a183643-0",
+      "gridIcon": "http://rdiodynimages2-a.akamaihd.net/?l=a183643-0%3Aboxblur%2810%25%2C10%25%29%3Ba183643-0%3Aprimary%280.65%29%3B%240%3Aoverlay%28%241%29%3Ba183643-0%3Apad%2850%25%29%3B%242%3Aoverlay%28%243%29",
+      "isOnCompilation": false,
+      "price": null,
+      "trackNum": 8,
+      "albumArtistKey": "r172972",
+      "key": "t2213826",
+      "playCount": 16311,
+      "icon": "http://rdio3img-a.akamaihd.net/album/b/5/d/000000000002cd5b/square-200.jpg",
+      "canSample": false,
+      "dominantColor": {
+        "a": 255,
+        "r": 132,
+        "b": 48,
+        "g": 90
+      },
+      "name": "Remind Me",
+      "isExplicit": false,
+      "artist": "Röyksopp",
+      "url": "/artist/R%C3%B6yksopp/album/Melody_AM/track/Remind_Me/",
+      "icon400": "http://rdio1img-a.akamaihd.net/album/b/5/d/000000000002cd5b/square-400.jpg",
+      "artistKey": "r172972",
+      "canDownload": false,
+      "length": 1,
+      "canTether": false,
+      "albumKey": "a183643"
+    },
+    "t7116337": {
+      "radioKey": "sr7116337",
+      "baseIcon": "album/6/f/1/00000000000911f6/6/square-200.jpg",
+      "canDownloadAlbumOnly": false,
+      "radio": {
+        "type": "sr",
+        "key": "sr7116337"
+      },
+      "artistUrl": "/artist/Daft_Punk/",
+      "duration": 251,
+      "dynamicIcon": "http://rdiodynimages0-a.akamaihd.net/?l=a594422-6",
+      "album": "TRON: Legacy",
+      "isrcs": [
+        "USWD11054892"
+      ],
+      "isClean": false,
+      "albumUrl": "/artist/Daft_Punk/album/TRON_Legacy/",
+      "shortUrl": "http://rd.io/x/QisuyXI/",
+      "albumArtist": "Daft Punk",
+      "canStream": true,
+      "embedUrl": "https://rd.io/e/QisuyXI/",
+      "type": "t",
+      "bigIcon": "http://rdio1img-a.akamaihd.net/album/6/f/1/00000000000911f6/6/square-600.jpg",
+      "iconKey": "a594422-6",
+      "gridIcon": "http://rdiodynimages3-a.akamaihd.net/?l=a594422-6%3Aboxblur%2810%25%2C10%25%29%3Ba594422-6%3Aprimary%280.65%29%3B%240%3Aoverlay%28%241%29%3Ba594422-6%3Apad%2850%25%29%3B%242%3Aoverlay%28%243%29",
+      "isOnCompilation": false,
+      "price": null,
+      "trackNum": 17,
+      "albumArtistKey": "r190508",
+      "key": "t7116337",
+      "playCount": 172352,
+      "icon": "http://rdio1img-a.akamaihd.net/album/6/f/1/00000000000911f6/6/square-200.jpg",
+      "canSample": true,
+      "dominantColor": {
+        "a": 255,
+        "r": 21,
+        "b": 96,
+        "g": 78
+      },
+      "name": "Disc Wars",
+      "isExplicit": false,
+      "artist": "Daft Punk",
+      "url": "/artist/Daft_Punk/album/TRON_Legacy/track/Disc_Wars/",
+      "icon400": "http://rdio3img-a.akamaihd.net/album/6/f/1/00000000000911f6/6/square-400.jpg",
+      "artistKey": "r190508",
+      "canDownload": false,
+      "length": 1,
+      "canTether": true,
+      "albumKey": "a594422"
+    }
+  }
+}
+
+

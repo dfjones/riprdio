@@ -7,6 +7,8 @@ import (
 	"github.com/GeertJohan/go.rice"
 	"github.com/dfjones/riprdio/config"
 	"github.com/dfjones/riprdio/importer"
+	_"github.com/dfjones/riprdio/importer/csv" // add csv format
+	_"github.com/dfjones/riprdio/importer/json" // add json format
 	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
 	mw "github.com/labstack/echo/middleware"
@@ -159,7 +161,9 @@ func main() {
 		}
 		defer part.Close()
 		log.Info("%+v", part)
-		state, err := importer.RunImportPipeline(c, part)
+		contentType := part.Header.Get("Content-Type")
+		log.Info("Upload with content-type %s", contentType)
+		state, err := importer.RunImportPipeline(c, contentType, part)
 		if err != nil {
 			return err
 		}
