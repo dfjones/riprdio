@@ -360,8 +360,7 @@ func asyncBatchImport(context *echo.Context, in <-chan *SpotifySong, done chan<-
 	batch := make([]*SpotifySong, 0, batchSize)
 
 	runBatch := func() {
-		var err error
-		//err := importSpotify(context, batch)
+		err := importSpotify(context, batch)
 		for _,song := range batch {
 			song.ImportError = err
 			out <- song
