@@ -12,7 +12,8 @@ import (
 	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
 	mw "github.com/labstack/echo/middleware"
-	"github.com/labstack/gommon/log"
+	logrus "github.com/deoxxa/echo-logrus"
+	log "github.com/Sirupsen/logrus"
 	"net/http"
 	"net/url"
 )
@@ -36,12 +37,13 @@ const (
 )
 
 func main() {
+	log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
 	config.LoadConfig("config.json")
 	conf = config.GetConfig()
 
 	e := echo.New()
 
-	e.Use(mw.Logger())
+	e.Use(logrus.New())
 	e.Use(mw.Recover())
 
 	assetHandler := http.FileServer(rice.MustFindBox("public").HTTPBox())
@@ -58,7 +60,7 @@ func main() {
 
 	e.Get("/login", func(c *echo.Context) error {
 		state := token.RandString(16)
-		log.Info("state %s", state)
+		log.Infof("state %s", state)
 		resp := c.Response()
 		http.SetCookie(resp.Writer(), &http.Cookie{Name: stateCookieKey, Value: state})
 		v := url.Values{}
@@ -79,7 +81,7 @@ func main() {
 		req := c.Request()
 		code := c.Query("code")
 		state := c.Query("state")
-		log.Info("code %s state %s", code, state)
+		log.Infof("code %s state %s", code, state)
 		storedState, err := req.Cookie(stateCookieKey)
 		if err != nil {
 			return err
@@ -110,7 +112,7 @@ func main() {
 			return err
 		}
 		defer authResp.Body.Close()
-		log.Info("status = %s", authResp.Status)
+		log.Infof("status = %s", authResp.Status)
 
 		var authData AuthData
 		err = json.NewDecoder(authResp.Body).Decode(&authData)
@@ -118,7 +120,7 @@ func main() {
 			log.Error("err decoding json", err)
 			return err
 		}
-		log.Info("data %+v", authData)
+		log.Infof("data %+v", authData)
 
 		resp := c.Response()
 		http.SetCookie(resp.Writer(), &http.Cookie{Name: config.AccessToken, Value: authData.AccessToken})
@@ -160,9 +162,9 @@ func main() {
 			return err
 		}
 		defer part.Close()
-		log.Info("%+v", part)
+		log.Infof("%+v", part)
 		contentType := part.Header.Get("Content-Type")
-		log.Info("Upload with content-type %s", contentType)
+		log.Infof("Upload with content-type %s", contentType)
 		state, err := importer.RunImportPipeline(c, contentType, part)
 		if err != nil {
 			return err
@@ -194,13 +196,13 @@ func main() {
 		header.Set("Connection", "keep-alive")
 
 		id := c.Param("id")
-		log.Info("Looking up pipeline %s", id)
+		log.Infof("Looking up pipeline %s", id)
 		pipeline := importer.GetRunningPipeline(id)
 		if pipeline == nil {
 			return c.NoContent(http.StatusNotFound)
 		}
 
-		defer log.Info("progress method return for id %s", id)
+		defer log.Infof("progress method return for id %s", id)
 
 		sub := pipeline.CreateSubscriber()
 		defer pipeline.RemoveSubscriber(sub)
@@ -232,7 +234,7 @@ func main() {
 			return err
 		}
 		flusher.Flush()
-		log.Info("Wrote end event to client.")
+		log.Infof("Wrote end event to client.")
 
 		return nil
 	})

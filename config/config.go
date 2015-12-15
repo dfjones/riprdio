@@ -2,7 +2,7 @@ package config
 
 import (
 	"encoding/json"
-	"github.com/labstack/gommon/log"
+	log "github.com/Sirupsen/logrus"
 	"os"
 )
 
@@ -35,6 +35,6 @@ func LoadConfig(string string) error {
 	if err != nil {
 		return err
 	}
-	log.Info("config = %+v", config)
+	log.Infof("config = %+v", config)
 	return nil
 }

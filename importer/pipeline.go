@@ -6,7 +6,7 @@ import (
 	"github.com/dfjones/riprdio/config"
 	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
-	"github.com/labstack/gommon/log"
+	log "github.com/Sirupsen/logrus"
 	"io"
 	"net/http"
 	"net/url"
@@ -84,15 +84,20 @@ type searchJson map[string]interface{}
 
 func init() {
 	go func() {
+		previousCount := 0
 		for _ = range time.Tick(time.Minute) {
 			snapshot := getRunningPipelineSnapshot()
-			log.Info("Goroutines=%d", runtime.NumGoroutine())
-			log.Info("Running pipelines %d", len(snapshot))
-			for _,state := range pipelines.running {
-				state.mx.Lock()
-				log.Info("Pipeline id %s progress %2.1f", state.Id, state.Stats.ProgressPercent)
-				state.mx.Unlock()
+			pipelineCount := len(snapshot)
+			if pipelineCount > 0 || previousCount > 0 {
+				log.Infof("Goroutines=%d", runtime.NumGoroutine())
+				log.Infof("Running pipelines %d", pipelineCount)
+				for _, state := range pipelines.running {
+					state.mx.Lock()
+					log.Infof("Pipeline id %s progress %2.1f", state.Id, state.Stats.ProgressPercent)
+					state.mx.Unlock()
+				}
 			}
+			previousCount = pipelineCount
 		}
 	}()
 }
@@ -130,7 +135,7 @@ func (p *PipelineState) CreateSubscriber() chan *ProgressMessage {
 	p.mx.Lock()
 	defer p.mx.Unlock()
 	p.progressSubscribers = append(p.progressSubscribers, c)
-	log.Info("Created subscriber for pipeline: %s", p.Id)
+	log.Infof("Created subscriber for pipeline: %s", p.Id)
 	return c
 }
 
@@ -140,7 +145,7 @@ func (p *PipelineState) RemoveSubscriber(s chan *ProgressMessage) {
 	for i, c := range p.progressSubscribers {
 		if c == s {
 			p.progressSubscribers = append(p.progressSubscribers[:i], p.progressSubscribers[i+1:]...)
-			log.Info("Removed subscriber for pipeline: %s", p.Id)
+			log.Infof("Removed subscriber for pipeline: %s", p.Id)
 			return
 		}
 	}
@@ -179,7 +184,7 @@ func RunImportPipeline(context *echo.Context, contentType string, reader io.Read
 		log.Warn("No format found for content type %s", contentType)
 		return nil, errors.New("No matching content type")
 	}
-	log.Info("Selected format %s for content type %s", format.name, contentType)
+	log.Infof("Selected format %s for content type %s", format.name, contentType)
 	songs, err := format.parse(reader)
 	if err != nil {
 		return nil, err
@@ -230,7 +235,7 @@ func Process(context *echo.Context, songs []*SpotifySong) (*PipelineState, error
 		go asyncImportSpotify(in, importOut, done, context, state)
 	}
 	go progressUpdater(state, importOut)
-	log.Info("Starting import of %d songs for id=%s", len(songs), state.Id)
+	log.Infof("Starting import of %d songs for id=%s", len(songs), state.Id)
 	go func() {
 		for _, song := range songs {
 			in <- song
@@ -278,7 +283,7 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 	}
 	removeRunningPipeline(state.Id)
 	delta := time.Since(state.StartTime)
-	log.Info("Finished import id=%s imported=%d of total songs=%d time=%s", state.Id, stats.TotalFound,
+	log.Infof("Finished import id=%s imported=%d of total songs=%d time=%s", state.Id, stats.TotalFound,
 		stats.ImportSize, delta.String())
 }
 
