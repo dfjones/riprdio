@@ -2,7 +2,7 @@ package csv
 
 import (
 	"github.com/dfjones/riprdio/importer"
-	"github.com/labstack/gommon/log"
+	log "github.com/Sirupsen/logrus"
 	"io"
 	"encoding/csv"
 	"errors"
@@ -28,6 +28,6 @@ func Parse(reader io.Reader) ([]*importer.SpotifySong, error) {
 			songs = append(songs, &importer.SpotifySong{Name: r[0], Artist: r[1], Album: r[2]})
 		}
 	}
-	log.Info("Parsed Rdio Enhancer Csv len %d", len(records))
+	log.Infof("Parsed Rdio Enhancer Csv len %d", len(records))
 	return songs, nil
 }

@@ -181,7 +181,7 @@ func makeAlbumCacheKey(album string, artist string) string {
 func RunImportPipeline(context *echo.Context, contentType string, reader io.Reader) (*PipelineState, error) {
 	format := selectFormat(contentType)
 	if format == nil {
-		log.Warn("No format found for content type %s", contentType)
+		log.Warnf("No format found for content type %s", contentType)
 		return nil, errors.New("No matching content type")
 	}
 	log.Infof("Selected format %s for content type %s", format.name, contentType)
@@ -414,12 +414,12 @@ func importSpotify(context *echo.Context, songs []*SpotifySong) error {
 		if putUrl != "" {
 			resp, err := putWithAuthToken(context, putUrl + "?" + v.Encode())
 			if err != nil {
-				log.Error("Error importing song batch to url %s %s", putUrl, err)
+				log.Errorf("Error importing song batch to url %s %s", putUrl, err)
 				return err
 			}
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				log.Error("Non-OK Status from API for %s: %s \n %s", putUrl, resp.Status, body)
+				log.Errorf("Non-OK Status from API for %s: %s \n %s", putUrl, resp.Status, body)
 				return errors.New("Add song/album API returned status" + resp.Status)
 			}
 		}
@@ -431,12 +431,12 @@ func importSpotify(context *echo.Context, songs []*SpotifySong) error {
 func searchSpotify(context *echo.Context, p *PipelineState, song *SpotifySong) *SpotifySong {
 	song, err := searchAlbum(context, p, song)
 	if err != nil {
-		log.Warn("Error looking up album %+v %s", song, err)
+		log.Warnf("Error looking up album %+v %s", song, err)
 	}
 	if song.SpotifyAlbumId == "" {
 		song, err = searchTrack(context, song)
 		if err != nil {
-			log.Warn("Error looking up track %+v %s", song, err)
+			log.Warnf("Error looking up track %+v %s", song, err)
 		}
 	}
 	return song
@@ -502,7 +502,7 @@ func doWithRetry(reqS requestSupplier, retries int) (*http.Response, error) {
 			time.Sleep(time.Duration(timeout) * time.Second)
 			return doWithRetry(reqS, retries+1)
 		} else {
-			log.Warn("Too many retries. Giving up %s", req.URL.String())
+			log.Warnf("Too many retries. Giving up %s", req.URL.String())
 			return resp, err
 		}
 	}

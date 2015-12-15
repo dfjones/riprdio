@@ -37,7 +37,7 @@ const (
 )
 
 func main() {
-	log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
+	log.SetFormatter(&log.TextFormatter{FullTimestamp: true, ForceColors: true})
 	config.LoadConfig("config.json")
 	conf = config.GetConfig()
 
@@ -108,7 +108,7 @@ func main() {
 
 		authResp, err := http.PostForm(spotifyTokenUrl, v)
 		if err != nil {
-			log.Error("Error requesting token", err)
+			log.Errorf("Error requesting token", err)
 			return err
 		}
 		defer authResp.Body.Close()
@@ -117,7 +117,7 @@ func main() {
 		var authData AuthData
 		err = json.NewDecoder(authResp.Body).Decode(&authData)
 		if err != nil {
-			log.Error("err decoding json", err)
+			log.Errorf("err decoding json", err)
 			return err
 		}
 		log.Infof("data %+v", authData)
