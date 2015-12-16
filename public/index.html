@@ -29,14 +29,29 @@
     <a href="./login" class="btn btn-primary">Log in with Spotify To Get Started</a>
     <br><br>
     <p>
-      Here's how this works: You will need to export your Rdio collection as a CSV file.
-      I've tested this importer with a CSV file produced by <a href="https://chrome.google.com/webstore/detail/rdio-enhancer/hmaalfaappddkggilhahaebfhdmmmngf?hl=en">Rdio Enhancer</a>
-      Chrome plugin.
-
-      New! Files created by <a href="http://conservator.io/">Conservatorio</a> are now supported! This tool appears
-      to produce a more extensive set of export data. All of the songs contained in this file will be added
-      to your Spotify music collection.
+      Here's how this works: You will need to export your Rdio collection in some way. This site will then use the export file to add
+      albums and songs to your Spotify collection.
     </p>
+    <p>
+      New! Support for Rdio's native export format. See <a href="http://www.rdio.com/farewell/">rdio.com/farewell</a> to generate your export.
+      After you have downloaded your export on the next screen you select the favorites_albumsandsongs.csv file from the 1_favorites folder. This
+      export appears to be the most inclusive and is the recommended format for use with this importer.
+    </p>
+    <p>
+      There are several other formats that I've tested with this importer.
+    </p>
+    <ul>
+      <li>
+      CSV files produced by <a href="https://chrome.google.com/webstore/detail/rdio-enhancer/hmaalfaappddkggilhahaebfhdmmmngf?hl=en">Rdio Enhancer</a>
+      Chrome plugin.
+      </li>
+
+      <li>
+      JSON files created by <a href="http://conservator.io/">Conservatorio</a>. This tool appears
+      to produce a more extensive set of export data than the Rdio Enhancer mentioned above.
+      All of the songs contained in this file will be added to your Spotify music collection.
+      </li>
+    </ul>
     <p>
       Once you have your export file, press the login button above to securely login to your
       Spotify account using OAuth.
@@ -57,6 +72,7 @@
 
     <h2>Updates</h2>
     <ul>
+      <li>Native Rdio export format support! See <a href="http://www.rdio.com/farewell/">rdio.com/farewell</a> for how to generate this. </li>
       <li>Speed! Reduction in the number of Spotify API calls resulted in a ~5x speedup of total import time.</li>
       <li>
         Spotify appears to have a limit of 10k items on your music collection. If the collection you are importing
