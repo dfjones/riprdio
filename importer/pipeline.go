@@ -24,8 +24,8 @@ const (
 	albumUrl    = "https://api.spotify.com/v1/me/albums"
 	trackUrl    = "https://api.spotify.com/v1/me/tracks"
 	concurrency = 3
-	maxRetries  = 50
-	batchSize = 50
+	maxRetries  = 5
+	batchSize = 100
 )
 
 var (
@@ -499,6 +499,10 @@ func doWithRetry(reqS requestSupplier, retries int) (*http.Response, error) {
 				return nil, err
 			}
 			resp.Body.Close()
+			if timeout > 60 {
+				log.Warnf("Long timeout of %d seconds for url %s. Giving up.", timeout, req.URL.String())
+				return resp, err
+			}
 			time.Sleep(time.Duration(timeout) * time.Second)
 			return doWithRetry(reqS, retries+1)
 		} else {
