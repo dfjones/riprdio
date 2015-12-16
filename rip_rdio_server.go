@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/GeertJohan/go.rice"
+	log "github.com/Sirupsen/logrus"
+	logrus "github.com/deoxxa/echo-logrus"
 	"github.com/dfjones/riprdio/config"
 	"github.com/dfjones/riprdio/importer"
-	_"github.com/dfjones/riprdio/importer/csv" // add csv format
-	_"github.com/dfjones/riprdio/importer/json" // add json format
+	_ "github.com/dfjones/riprdio/importer/csv"  // add csv format
+	_ "github.com/dfjones/riprdio/importer/json" // add json format
 	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
 	mw "github.com/labstack/echo/middleware"
-	logrus "github.com/deoxxa/echo-logrus"
-	log "github.com/Sirupsen/logrus"
 	"net/http"
 	"net/url"
 )

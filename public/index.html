@@ -19,6 +19,9 @@
     #upload-finished {
     display: none;
     }
+    #over-limit-warning {
+    display: none;
+    }
   </style>
 </head>
 
@@ -94,6 +97,9 @@
 <div id="upload-progress-container" class="container">
   <h2>Upload Progress</h2>
   <div id="upload-progress"></div>
+  <div id="over-limit-warning">
+    <h2>Warning: You appear to be over the 10k collection limit!</h2>
+  </div>
   <div id="upload-finished">
     <h2>Import Finished!</h2>
   </div>
@@ -221,7 +227,11 @@
                   var eSource = new EventSource("progress/"+pipeline_id);
 
                   eSource.addEventListener("progress", function(e) {
-                    progressPlaceholder.innerHTML = progressTemplate(JSON.parse(e.data));
+                    var progress = JSON.parse(e.data);
+                    progressPlaceholder.innerHTML = progressTemplate(progress);
+                    if (progress.LimitExceeded) {
+                      $('#over-limit-warning').show();
+                    }
                   });
 
                   eSource.addEventListener("notfound", function(e) {

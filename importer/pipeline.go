@@ -3,40 +3,41 @@ package importer
 import (
 	"encoding/json"
 	"errors"
+	log "github.com/Sirupsen/logrus"
 	"github.com/dfjones/riprdio/config"
 	"github.com/dfjones/riprdio/token"
 	"github.com/labstack/echo"
-	log "github.com/Sirupsen/logrus"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
-	"strings"
-	"runtime"
-	"io/ioutil"
 )
 
 const (
 	defaultContentType = "text/csv"
-	searchUrl   = "https://api.spotify.com/v1/search"
-	albumUrl    = "https://api.spotify.com/v1/me/albums"
-	trackUrl    = "https://api.spotify.com/v1/me/tracks"
-	concurrency = 3
-	maxRetries  = 5
-	batchSize = 100
+	searchUrl          = "https://api.spotify.com/v1/search"
+	albumUrl           = "https://api.spotify.com/v1/me/albums"
+	trackUrl           = "https://api.spotify.com/v1/me/tracks"
+	concurrency        = 3
+	maxRetries         = 30
+	maxErrors          = 10
+	batchSize          = 50
 )
 
 var (
 	pipelines = pipelineStates{sync.Mutex{}, make(map[string]*PipelineState)}
-	formats []*format
+	formats   []*format
 )
 
 type format struct {
-	name string
+	name        string
 	contentType string
-	parse Parse
+	parse       Parse
 }
 
 type Parse func(reader io.Reader) ([]*SpotifySong, error)
@@ -59,10 +60,10 @@ type PipelineState struct {
 	Id                  string
 	ProcessedSongs      chan *SpotifySong
 	Stats               PipelineStats
-	StartTime			time.Time
+	StartTime           time.Time
 	mx                  sync.Mutex
 	progressSubscribers []chan *ProgressMessage
-	albumIdCache		map[string]string
+	albumIdCache        map[string]string
 }
 
 type PipelineStats struct {
@@ -72,6 +73,7 @@ type PipelineStats struct {
 	TotalFound      int
 	NotFound        int
 	Errors          int
+	LimitExceeded   bool
 	ProgressPercent float64
 }
 
@@ -108,7 +110,7 @@ func RegisterFormat(name, contentType string, parser Parse) {
 
 func selectFormat(contentType string) *format {
 	var defaultFormat *format
-	for _,f := range formats {
+	for _, f := range formats {
 		if f.contentType == defaultContentType {
 			defaultFormat = f
 		}
@@ -123,7 +125,7 @@ func selectFormat(contentType string) *format {
 func getRunningPipelineSnapshot() []*PipelineState {
 	states := make([]*PipelineState, 0)
 	pipelines.mutex.Lock()
-	for _,s := range pipelines.running {
+	for _, s := range pipelines.running {
 		states = append(states, s)
 	}
 	pipelines.mutex.Unlock()
@@ -265,6 +267,9 @@ func progressUpdater(state *PipelineState, in <-chan *SpotifySong) {
 			message.NotFoundSong = song
 		}
 		if song.ImportError != nil {
+			if strings.Contains(song.ImportError.Error(), "403") {
+				stats.LimitExceeded = true
+			}
 			stats.Errors++
 		}
 		state.mx.Lock()
@@ -351,7 +356,7 @@ func searchAlbum(context *echo.Context, p *PipelineState, song *SpotifySong) (*S
 func asyncImportSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done chan<- bool, context *echo.Context, p *PipelineState) {
 	batch := make(chan *SpotifySong)
 
-	go asyncBatchImport(context, batch, done, out)
+	go asyncBatchImport(context, batch, done, out, p)
 
 	for song := range in {
 		song = searchSpotify(context, p, song)
@@ -361,12 +366,28 @@ func asyncImportSpotify(in <-chan *SpotifySong, out chan<- *SpotifySong, done ch
 	close(batch)
 }
 
-func asyncBatchImport(context *echo.Context, in <-chan *SpotifySong, done chan<- bool, out chan<- *SpotifySong) {
+func asyncBatchImport(context *echo.Context, in <-chan *SpotifySong, done chan<- bool, out chan<- *SpotifySong, p *PipelineState) {
 	batch := make([]*SpotifySong, 0, batchSize)
+	errCount := 0
+	var lastErr error
 
 	runBatch := func() {
-		err := importSpotify(context, batch)
-		for _,song := range batch {
+		var err error
+		if errCount < maxErrors {
+			err = importSpotify(context, p, batch)
+			if err != nil {
+				lastErr = err
+				errCount++
+				if errCount >= maxErrors {
+					log.Warnf("Pipeline=%s is over the error threshold=%d. Skipping future imports.", p.Id, maxErrors)
+				} else {
+					log.Warnf("Pipeline=%s current error count is %d", p.Id, errCount)
+				}
+			}
+		} else {
+			err = lastErr
+		}
+		for _, song := range batch {
 			song.ImportError = err
 			out <- song
 		}
@@ -384,12 +405,12 @@ func asyncBatchImport(context *echo.Context, in <-chan *SpotifySong, done chan<-
 	done <- true
 }
 
-func importSpotify(context *echo.Context, songs []*SpotifySong) error {
-	albumIdSet:= make(map[string]bool)
+func importSpotify(context *echo.Context, p *PipelineState, songs []*SpotifySong) error {
+	albumIdSet := make(map[string]bool)
 	trackIds := make([]string, 0)
 	toPut := make(map[string][]string)
 
-	for _,song := range songs {
+	for _, song := range songs {
 		if song.SpotifyAlbumId != "" {
 			albumIdSet[song.SpotifyAlbumId] = true
 		} else if song.SpotifyTrackId != "" {
@@ -412,15 +433,15 @@ func importSpotify(context *echo.Context, songs []*SpotifySong) error {
 		v := url.Values{}
 		v.Set("ids", strings.Join(ids, ","))
 		if putUrl != "" {
-			resp, err := putWithAuthToken(context, putUrl + "?" + v.Encode())
+			resp, err := putWithAuthToken(context, putUrl+"?"+v.Encode())
 			if err != nil {
 				log.Errorf("Error importing song batch to url %s %s", putUrl, err)
 				return err
 			}
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				log.Errorf("Non-OK Status from API for %s: %s \n %s", putUrl, resp.Status, body)
-				return errors.New("Add song/album API returned status" + resp.Status)
+				log.Errorf("For Pipeline=%s Non-OK Status from API for %s: %s \n %s", p.Id, putUrl, resp.Status, body)
+				return errors.New("Add song/album API returned status " + resp.Status)
 			}
 		}
 	}
