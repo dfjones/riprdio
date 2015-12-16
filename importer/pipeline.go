@@ -133,7 +133,7 @@ func getRunningPipelineSnapshot() []*PipelineState {
 }
 
 func (p *PipelineState) CreateSubscriber() chan *ProgressMessage {
-	c := make(chan *ProgressMessage)
+	c := make(chan *ProgressMessage, 1)
 	p.mx.Lock()
 	defer p.mx.Unlock()
 	p.progressSubscribers = append(p.progressSubscribers, c)
